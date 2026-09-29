@@ -53,15 +53,34 @@ async def run(
         use_state=use_state, timeout_seconds=timeout_seconds,
     ) as session:
         assert session.page and session.context
-        if login and not await session.is_authenticated():
+
+        authenticated = await session.is_authenticated()
+        print(
+            f"Authentication: {'active' if authenticated else 'not authenticated'}"
+            + (f" (state: {state_path})" if use_state else "")
+        )
+
+        if login and not authenticated:
             if not await session.login():
+                print("Facebook login did not complete.")
                 return False
+            authenticated = True
 
         collector = MediaCollector(
             session.page, timeout_seconds=timeout_seconds, max_scrolls=max_scrolls,
             scroll_delay=scroll_delay, max_photos=max_photos,
         )
         title = sanitize_filename(await collector.open(source))
+
+        # Facebook can render a public post shell and a few thumbnails while placing
+        # an in-page login modal over the media viewer. The URL does not redirect to
+        # /login, so URL-only authentication checks miss this state.
+        if await session.has_login_wall():
+            print("Facebook is showing an authentication wall for this content.")
+            print("Run the same command with --login once, complete login in the browser, then retry.")
+            print(f"Session state will be saved to: {state_path}")
+            return False
+
         output_dir = Path(output) / title
         output_dir.mkdir(parents=True, exist_ok=True)
         target_manifest = manifest_path(output_dir, urls_file)
@@ -73,6 +92,14 @@ async def run(
             save_manifest(target_manifest, source, title, merge_photos(copies, saved_photos))
 
         discovered = await collector.collect(progress_hook=persist_partial)
+
+        # The gate may appear only after entering the viewer or after a couple of
+        # Next operations. Reject that partial traversal instead of reporting success.
+        if await session.has_login_wall():
+            print("Facebook interrupted media traversal with an authentication wall.")
+            print("No partial result will be treated as complete. Re-run with --login.")
+            return False
+
         if not discovered and not saved_photos:
             print("No media found. The content may be inaccessible or Facebook's viewer structure may have changed.")
             return False
@@ -151,7 +178,8 @@ async def _run_from_manifest(
         use_state=use_state, timeout_seconds=timeout_seconds,
     ) as session:
         assert session.page and session.context
-        if login and not await session.is_authenticated():
+        authenticated = await session.is_authenticated()
+        if login and not authenticated:
             if not await session.login():
                 return False
         collector = MediaCollector(
@@ -164,6 +192,10 @@ async def _run_from_manifest(
                 if fresh:
                     photo.direct_url = fresh.direct_url
                     save_manifest(manifest_file, source_url, title, photos)
+
+        if await session.has_login_wall():
+            print("Facebook is showing an authentication wall. Re-run with --login.")
+            return False
 
         downloader = ImageDownloader(
             session.context, output_dir=str(output_dir), workers=workers,
