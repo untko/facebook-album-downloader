@@ -90,13 +90,30 @@ class MediaCollector(StableMediaCollector):
                     uniq.push({href, x:r.left+r.width/2, y:r.top+r.height/2, area:r.width*r.height});
                   }
                   uniq.sort((a,b)=>b.area-a.area);
+
+                  // Facebook's +N label overlays a real photo tile. N includes that
+                  // covered tile, so the anchor under the overlay must not also be
+                  // counted as an additional visible photo.
                   const cr = hit.clickable.getBoundingClientRect();
+                  const cx = cr.left + cr.width/2, cy = cr.top + cr.height/2;
+                  let coveredTiles = 0;
+                  for (const a of chosen.anchors) {
+                    const r = a.getBoundingClientRect();
+                    if (cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom) {
+                      coveredTiles += 1;
+                    }
+                  }
+                  // Nested/duplicate anchors can geometrically cover the same tile;
+                  // semantically the overlay represents one media tile.
+                  coveredTiles = coveredTiles > 0 ? 1 : 0;
+
                   return {
                     overflow: hit.n,
                     set_id: targetSet,
                     links: uniq.map(x=>x.href),
+                    covered_tiles: coveredTiles,
                     first_point: uniq.length ? {x:uniq[0].x,y:uniq[0].y} : null,
-                    overflow_point: {x:cr.left+cr.width/2,y:cr.top+cr.height/2}
+                    overflow_point: {x:cx,y:cy}
                   };
                 }
             """)
@@ -139,14 +156,21 @@ class MediaCollector(StableMediaCollector):
 
         overflow = int(context["overflow"])
         links = list(dict.fromkeys(context.get("links") or []))
+        covered_tiles = min(int(context.get("covered_tiles") or 0), len(links))
+        visible_media = max(0, len(links) - covered_tiles)
         self.target_set_id = str(context.get("set_id") or "")
-        self.expected_count = len(links) + overflow if links else None
+        self.expected_count = visible_media + overflow if links else None
 
         all_links = await self._photo_links()
         print(
             f"Detected {len(all_links)} photo link(s) in the source DOM; "
-            f"{len(links)} are visible tiles in the +{overflow} post collage."
+            f"{len(links)} are photo anchors in the +{overflow} post collage."
         )
+        if covered_tiles:
+            print(
+                f"The +{overflow} overlay covers 1 photo tile; "
+                f"counting {visible_media} unobscured + {overflow} remaining media."
+            )
         if self.target_set_id:
             print(f"Locked post media set: {self.target_set_id}")
         suffix = f"; expecting {self.expected_count} media item(s)" if self.expected_count else ""
