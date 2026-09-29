@@ -1,4 +1,4 @@
-from facebook_album_downloader.collector_v5 import MediaCollector
+from facebook_album_downloader.post_collector import MediaCollector
 from facebook_album_downloader.models import Photo
 
 
