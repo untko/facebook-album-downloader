@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .browser import BrowserSession
-from .collector_v4 import MediaCollector
+from .collector_v5 import MediaCollector
 from .downloader import ImageDownloader
 from .manifest import detect_downloaded, load_manifest, manifest_path, merge_photos, sanitize_filename, save_manifest
 from .models import Photo
