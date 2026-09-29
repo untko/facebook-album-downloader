@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .browser import BrowserSession
-from .collector_v3 import MediaCollector
+from .collector_v4 import MediaCollector
 from .downloader import ImageDownloader
 from .manifest import detect_downloaded, load_manifest, manifest_path, merge_photos, sanitize_filename, save_manifest
 from .models import Photo
@@ -102,6 +102,13 @@ async def run(
         if await session.has_login_wall():
             print("Facebook interrupted media traversal with an authentication wall.")
             print("No partial result will be treated as complete. Re-run with --login.")
+            return False
+
+        if collector.expected_count and not collector.complete:
+            print(
+                f"Traversal incomplete: collected {len(discovered)}/{collector.expected_count}. "
+                "Refusing to download a partial or unrelated set."
+            )
             return False
 
         if not discovered and not saved_photos:
