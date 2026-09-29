@@ -56,7 +56,7 @@ async def run(
 
         authenticated = await session.is_authenticated()
         print(
-            f"Authentication: {'active' if authenticated else 'not authenticated'}"
+            f"Authentication cookie: {'present' if authenticated else 'absent'}"
             + (f" (state: {state_path})" if use_state else "")
         )
 
@@ -64,7 +64,6 @@ async def run(
             if not await session.login():
                 print("Facebook login did not complete.")
                 return False
-            authenticated = True
 
         collector = MediaCollector(
             session.page, timeout_seconds=timeout_seconds, max_scrolls=max_scrolls,
@@ -72,14 +71,24 @@ async def run(
         )
         title = sanitize_filename(await collector.open(source))
 
-        # Facebook can render a public post shell and a few thumbnails while placing
-        # an in-page login modal over the media viewer. The URL does not redirect to
-        # /login, so URL-only authentication checks miss this state.
+        # A stale c_user cookie can exist while Facebook still presents an in-page
+        # login gate. When --login was requested, force a fresh interactive login and
+        # reload the target before deciding that the source is inaccessible.
         if await session.has_login_wall():
-            print("Facebook is showing an authentication wall for this content.")
-            print("Run the same command with --login once, complete login in the browser, then retry.")
-            print(f"Session state will be saved to: {state_path}")
-            return False
+            if login:
+                print("Facebook rejected the saved session; refreshing login interactively.")
+                if not await session.login():
+                    print("Facebook login did not complete.")
+                    return False
+                title = sanitize_filename(await collector.open(source))
+                if await session.has_login_wall():
+                    print("Facebook is still showing an authentication wall after login.")
+                    return False
+            else:
+                print("Facebook is showing an authentication wall for this content.")
+                print("Run the same command with --login once, complete login in the browser, then retry.")
+                print(f"Session state will be saved to: {state_path}")
+                return False
 
         output_dir = Path(output) / title
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -194,8 +203,12 @@ async def _run_from_manifest(
                     save_manifest(manifest_file, source_url, title, photos)
 
         if await session.has_login_wall():
-            print("Facebook is showing an authentication wall. Re-run with --login.")
-            return False
+            if login:
+                if not await session.login():
+                    return False
+            else:
+                print("Facebook is showing an authentication wall. Re-run with --login.")
+                return False
 
         downloader = ImageDownloader(
             session.context, output_dir=str(output_dir), workers=workers,
