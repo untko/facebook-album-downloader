@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .browser import BrowserSession
-from .collector_v2 import MediaCollector
+from .collector_v3 import MediaCollector
 from .downloader import ImageDownloader
 from .manifest import detect_downloaded, load_manifest, manifest_path, merge_photos, sanitize_filename, save_manifest
 from .models import Photo
@@ -71,9 +71,6 @@ async def run(
         )
         title = sanitize_filename(await collector.open(source))
 
-        # A stale c_user cookie can exist while Facebook still presents an in-page
-        # login gate. When --login was requested, force a fresh interactive login and
-        # reload the target before deciding that the source is inaccessible.
         if await session.has_login_wall():
             if login:
                 print("Facebook rejected the saved session; refreshing login interactively.")
@@ -102,8 +99,6 @@ async def run(
 
         discovered = await collector.collect(progress_hook=persist_partial)
 
-        # The gate may appear only after entering the viewer or after a couple of
-        # Next operations. Reject that partial traversal instead of reporting success.
         if await session.has_login_wall():
             print("Facebook interrupted media traversal with an authentication wall.")
             print("No partial result will be treated as complete. Re-run with --login.")
