@@ -97,6 +97,43 @@ class BrowserSession:
         cookies = await self.context.cookies("https://www.facebook.com")
         return any(c.get("name") == "c_user" and c.get("value") for c in cookies)
 
+    async def has_login_wall(self) -> bool:
+        """Detect Facebook's in-page authentication gate, not just URL redirects.
+
+        Public posts can render a few attachments while an unauthenticated modal such
+        as "See more on Facebook" blocks the media viewer. In that case the page URL
+        remains a post/photo URL, so URL-only login detection is insufficient.
+        """
+        if not self.page:
+            return False
+        try:
+            return bool(await self.page.evaluate(
+                """
+                () => {
+                  const body = (document.body?.innerText || '').toLowerCase();
+                  const textGate = body.includes('see more on facebook') ||
+                                   body.includes('see more from') ||
+                                   body.includes('log in to facebook');
+                  const visiblePassword = [...document.querySelectorAll('input[type="password"]')]
+                    .some(el => {
+                      const r = el.getBoundingClientRect();
+                      const s = getComputedStyle(el);
+                      return r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 &&
+                             r.top < innerHeight && r.left < innerWidth &&
+                             s.display !== 'none' && s.visibility !== 'hidden';
+                    });
+                  const visibleLoginDialog = [...document.querySelectorAll('[role="dialog"]')]
+                    .some(el => {
+                      const t = (el.innerText || '').toLowerCase();
+                      return t.includes('log in') && (t.includes('password') || t.includes('email'));
+                    });
+                  return textGate && (visiblePassword || visibleLoginDialog);
+                }
+                """
+            ))
+        except Exception:
+            return False
+
     async def login(self, timeout_seconds: int = 300) -> bool:
         if not self.page:
             raise RuntimeError("BrowserSession has not been started")
