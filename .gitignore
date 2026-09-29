@@ -2,8 +2,12 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+*.egg-info/
+dist/
+build/
 facebook_cookies.json
 facebook_state.json
 downloadedImgs/
+test_downloads*/
 *.part
 .DS_Store
