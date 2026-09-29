@@ -2,21 +2,24 @@
 
 A Playwright-based downloader for Facebook albums and multi-photo posts.
 
-This is a clean rewrite built around browser automation rather than Selenium/WebDriver. It is designed for Facebook's current dynamic UI, including posts where only a handful of thumbnails are initially present in the DOM while the post contains many more images.
+This project is a clean rewrite of the original Selenium/WebDriver implementation. It is designed for Facebook's dynamic UI, including posts where only a few thumbnails are initially visible while many more images are hidden behind a `+N` tile.
 
-## What it does
+## Features
 
-- Downloads albums and multi-photo posts
-- Traverses Facebook's media viewer with Playwright instead of assuming the visible thumbnail count is complete
-- Persists authenticated browser state for private content your account can access
+- Downloads Facebook albums and multi-photo posts
+- Traverses the Facebook media viewer with Playwright
+- Scopes `+N` discovery to the post collage that owns the overflow tile
+- Locks multi-photo post traversal to its `set=pcb...` media set
+- Uses rendered media identity to avoid duplicate downloads caused by stale viewer URLs
+- Captures GraphQL photo records as an additional discovery signal
+- Refuses to download an incomplete or unrelated media set when an expected count is known
+- Persists authenticated browser state
 - Resumes interrupted runs from `album_urls.json`
-- Progressively saves discovered media while traversing a post/album
-- Reuses existing downloaded files
-- Refreshes expired Facebook CDN URLs through the browser
-- Downloads multiple images concurrently
-- Supports `--urls-only`, headless mode, custom output paths, and saved manifests
-- Reads the legacy manifest formats used by the original project
-- Reads legacy Selenium cookie arrays and migrates them to Playwright storage state on the next save
+- Progressively saves manifests while traversing media
+- Refreshes expired Facebook CDN URLs
+- Downloads images concurrently
+- Supports URL-only extraction, headless mode, custom output paths, and saved manifests
+- Reads legacy manifest formats and legacy Selenium cookie arrays
 
 ## Install
 
@@ -39,19 +42,19 @@ Download an album or multi-photo post:
 facebook-album-downloader "https://www.facebook.com/..."
 ```
 
-The old entry point is also kept:
+The legacy entry point is also available:
 
 ```bash
 python albumDownloader.py "https://www.facebook.com/..."
 ```
 
-Authenticate interactively and save the browser session:
+Authenticate interactively once and save the Playwright session:
 
 ```bash
 facebook-album-downloader --login
 ```
 
-Then download content visible to that account:
+Then reuse that session in later runs:
 
 ```bash
 facebook-album-downloader "https://www.facebook.com/..." --headless
@@ -63,32 +66,35 @@ Extract URLs without downloading:
 facebook-album-downloader "https://www.facebook.com/..." --urls-only
 ```
 
-Resume directly from a manifest:
+Resume from a saved manifest:
 
 ```bash
 facebook-album-downloader downloadedImgs/My_Album/album_urls.json
 ```
 
-Custom output folder:
+Choose a custom output folder:
 
 ```bash
 facebook-album-downloader "https://www.facebook.com/..." --output my_downloads
 ```
 
-## Why the collector does not trust the thumbnail count
+## How multi-photo posts are handled
 
-Facebook often renders only the first few photos of a large post. A post containing 70+ images can expose only about five photo links in the initial DOM. Counting those links therefore underestimates the post.
+Facebook may expose only a handful of photo anchors in the initial DOM. Large posts can place the remaining media behind a `+N` overlay, so the collector does not treat the visible anchor count as the total.
 
-The Playwright collector uses several stages:
+For posts with overflow media, the collector:
 
-1. Collect visible photo links while the source page is loaded.
-2. Open the first Facebook photo URL.
-3. Read the full-resolution media from the viewer.
-4. Advance the viewer with keyboard/navigation controls.
-5. Continue until a media ID repeats, the Facebook `set` changes, or the viewer can no longer advance.
-6. Fall back to individually visiting any discovered links that were not resolved by the viewer.
+1. Locates the visible `+N` tile.
+2. Finds the photo collage that owns that tile.
+3. Derives and locks the post's `set=pcb...` media-set identifier.
+4. Computes the expected media count using the collage and Facebook's `+N` semantics.
+5. Opens the media viewer from that scoped collage.
+6. Advances through the viewer while tracking the rendered image itself rather than relying only on the browser URL.
+7. Deduplicates by media identity and filters out records from unrelated sets.
+8. Uses GraphQL photo records only as a supplemental discovery source.
+9. Refuses to download when traversal is incomplete and an expected total is known.
 
-For posts, the `set=pcb...` identifier helps keep traversal inside the same post. For albums, the `set=a...` identifier serves the same role.
+Albums use the same viewer-based extraction approach, with their own Facebook set identifiers when available.
 
 ## Main options
 
@@ -97,7 +103,7 @@ For posts, the `set=pcb...` identifier helps keep traversal inside the same post
 --login, --auth            Interactive Facebook login
 --headless                 Run browser without a visible window
 --state PATH               Playwright storage-state file
---cookies PATH             Alias kept for compatibility
+--cookies PATH             Compatibility alias for --state
 --no-cookies               Do not load/save authentication state
 --urls-file PATH           Custom manifest location
 --urls-only                Extract media URLs without downloading files
@@ -111,6 +117,7 @@ For posts, the `set=pcb...` identifier helps keep traversal inside the same post
 
 ## Notes
 
-- Facebook changes its frontend frequently. The collector intentionally relies on media IDs, viewer state, image dimensions, and structural navigation rather than generated CSS class names.
-- Private content can only be downloaded when the logged-in Facebook account already has permission to view it.
-- Use this only for content you are authorized to access and download.
+- Facebook changes its frontend frequently. The collector relies on media identity, viewer state, structural navigation, and Facebook media-set boundaries rather than generated CSS class names.
+- Private content can only be downloaded when the logged-in account already has permission to view it.
+- Authentication state files and downloaded media are ignored by Git.
+- Use the tool only for content you are authorized to access and download.
